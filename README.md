@@ -9,13 +9,13 @@ Repo ini adalah **backend** dari Be4Throw, dibangun menggunakan Express.js.
 - dotenv
 
 ## 📁 Struktur Folder
-be/
-├── controllers/ # Logic untuk tiap request
-├── models/ # Skema/model data
-├── routes/ # Routing endpoint API
-├── index.js # Entry point aplikasi
-├── .env # Environment variables (tidak di-push ke repo)
-└── package.json
+
+- `controllers/` 
+- `models/` 
+- `routes/`
+- `index.js`
+- `.env`
+- `package.json`
 
 ## ⚙️ Cara Menjalankan Project
 
