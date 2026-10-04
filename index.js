@@ -19,8 +19,8 @@ app.get('/', (req, res) => {
   return success(res, 200, 'Server Be4Throw berjalan');
 });
 
-// Routes will be registered here later, e.g.:
-// app.use('/api/auth', require('./routes/authRoutes'));
+// Routes
+app.use('/api/auth', require('./routes/authRoutes'));
 
 // Must be last: 404 then error handler
 app.use(notFound);
