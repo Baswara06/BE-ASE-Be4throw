@@ -1,14 +1,340 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
-// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
-// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
-
 generator client {
-  provider = "prisma-client"
+  provider = "prisma-client-js"
 }
 
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
+}
+
+// ==================== ENUM ====================
+
+enum Role {
+  pengguna
+  admin
+}
+
+enum StatusAkun {
+  aktif
+  nonaktif
+}
+
+// Status konten basis pengetahuan (FR-12)
+enum StatusKonten {
+  draft
+  aktif
+  nonaktif
+}
+
+// 5 tindakan sesuai SRS 1.2
+enum Tindakan {
+  gunakan_kembali
+  perbaiki
+  jual
+  donasikan
+  daur_ulang
+}
+
+enum TipePertanyaan {
+  pilihan_tunggal
+  pilihan_ganda
+  angka
+  ya_tidak
+}
+
+enum FungsiUtama {
+  berfungsi_penuh
+  berfungsi_sebagian
+  tidak_berfungsi
+}
+
+enum StatusAnalisis {
+  draft
+  selesai
+  gagal
+}
+
+enum JenisRekomendasi {
+  utama
+  alternatif
+}
+
+enum JenisData {
+  kategori
+  barang
+  pertanyaan
+  aturan
+  faktor_dampak
+}
+
+enum StatusAudit {
+  dipublikasikan
+  disimpan
+  draf
+}
+
+// ==================== AKUN (FR-01, FR-04) ====================
+
+model User {
+  id           Int        @id @default(autoincrement())
+  nama         String
+  username     String?    @unique // FR-04, opsional karena register tidak memintanya
+  email        String     @unique
+  noTelepon    String? // FR-04, opsional (NFR-07)
+  domisili     String? // FR-04, mis. "Kota Bandung, Jawa Barat"
+  passwordHash String
+  role         Role       @default(pengguna)
+  status       StatusAkun @default(aktif)
+  fotoProfil   String?
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  analisis       AnalisisBarang[]
+  umpanBalik     UmpanBalik[]
+  resetTokens    PasswordResetToken[]
+  aturanDibuat   BasisPengetahuan[]
+  faktorDibuat   FaktorDampak[]
+  auditPerubahan AuditPerubahan[]
+}
+
+model PasswordResetToken {
+  id        Int       @id @default(autoincrement())
+  userId    Int
+  tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+// ==================== KATALOG (FR-05, FR-06, FR-07) ====================
+
+model Kategori {
+  id        Int          @id @default(autoincrement())
+  nama      String       @unique
+  deskripsi String?
+  status    StatusKonten @default(aktif)
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+
+  barang     Barang[]
+  pertanyaan Pertanyaan[]
+  aturan     BasisPengetahuan[]
+}
+
+model Barang {
+  id            Int          @id @default(autoincrement())
+  nama          String
+  kategoriId    Int
+  gambar        String?
+  estimasiBerat Float? // dalam kg
+  material      String? // dipakai untuk cari FaktorDampak (FR-11)
+  status        StatusKonten @default(aktif)
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+
+  kategori Kategori         @relation(fields: [kategoriId], references: [id])
+  analisis AnalisisBarang[]
+
+  @@unique([nama, kategoriId])
+}
+
+model Pertanyaan {
+  id             Int            @id @default(autoincrement())
+  kategoriId     Int
+  kode           String // kunci jawaban, mis. "fungsi_utama", dipakai di kondisi aturan
+  teks           String
+  tipe           TipePertanyaan
+  opsi           Json? // mis. [{ "nilai": "tergores", "label": "Tergores" }]
+  wajib          Boolean        @default(true)
+  bolehTidakTahu Boolean        @default(false)
+  urutan         Int            @default(0)
+  indukId        Int? // diisi kalau ini pertanyaan lanjutan
+  tampilJika     Json? // mis. { "jawaban": "ya" } → tampil kalau induk dijawab "ya"
+  status         StatusKonten   @default(aktif)
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+
+  kategori Kategori     @relation(fields: [kategoriId], references: [id])
+  induk    Pertanyaan?  @relation("PertanyaanLanjutan", fields: [indukId], references: [id])
+  lanjutan Pertanyaan[] @relation("PertanyaanLanjutan")
+
+  @@unique([kategoriId, kode])
+}
+
+// ==================== ANALISIS (FR-07 s/d FR-11) ====================
+
+model AnalisisBarang {
+  id                Int            @id @default(autoincrement())
+  userId            Int? // null = analisis tanpa login (NFR-07)
+  barangId          Int
+  status            StatusAnalisis @default(draft)
+  versiAturan       Int? // NFR-11
+  versiFaktor       Int? // NFR-11
+  pesanKeterbatasan String? // diisi kalau aturan/faktor tidak tersedia
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+
+  user                   User?                   @relation(fields: [userId], references: [id])
+  barang                 Barang                  @relation(fields: [barangId], references: [id])
+  kondisi                KondisiBarang?
+  pemeriksaanKeselamatan PemeriksaanKeselamatan?
+  skorSolusi             SkorSolusi[]
+  rekomendasi            Rekomendasi[]
+  umpanBalik             UmpanBalik?
+
+  @@index([userId])
+}
+
+model KondisiBarang {
+  id               Int          @id @default(autoincrement())
+  analisisId       Int          @unique
+  fungsiUtama      FungsiUtama?
+  kondisiFisik     String[] // mis. ["tergores", "penyok"]
+  usiaTahun        Float? // null = tidak tahu
+  kelengkapan      Int? // 0–100 persen, null = tidak tahu
+  mengandungBahaya Boolean? // null = tidak tahu
+  jenisBahaya      String[] // mis. ["baterai", "benda_tajam", "bahan_kimia"]
+  jawabanLain      Json? // jawaban pertanyaan khusus kategori
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+
+  analisis AnalisisBarang @relation(fields: [analisisId], references: [id], onDelete: Cascade)
+}
+
+model PemeriksaanKeselamatan {
+  id                  Int        @id @default(autoincrement())
+  analisisId          Int        @unique
+  adaBahaya           Boolean
+  tindakanDieliminasi Tindakan[]
+  peringatan          String[]
+  createdAt           DateTime   @default(now())
+
+  analisis AnalisisBarang @relation(fields: [analisisId], references: [id], onDelete: Cascade)
+}
+
+model SkorSolusi {
+  id         Int      @id @default(autoincrement())
+  analisisId Int
+  tindakan   Tindakan
+  skor       Int // 0–100
+  peringkat  Int
+  createdAt  DateTime @default(now())
+
+  analisis AnalisisBarang @relation(fields: [analisisId], references: [id], onDelete: Cascade)
+
+  @@unique([analisisId, tindakan])
+}
+
+model Rekomendasi {
+  id             Int              @id @default(autoincrement())
+  analisisId     Int
+  tindakan       Tindakan
+  jenis          JenisRekomendasi
+  skor           Int
+  alasan         String
+  langkahPraktis String[]
+  peringatan     String[]
+  createdAt      DateTime         @default(now())
+
+  analisis AnalisisBarang    @relation(fields: [analisisId], references: [id], onDelete: Cascade)
+  dampak   DampakLingkungan?
+
+  @@unique([analisisId, tindakan])
+}
+
+model DampakLingkungan {
+  id                   Int      @id @default(autoincrement())
+  rekomendasiId        Int      @unique
+  material             String
+  limbahDialihkanKg    Float?
+  emisiDihindariKgCO2e Float? // simpan kg, tampilkan ton di FE kalau perlu
+  asumsi               String?
+  sumber               String?
+  tahunFaktor          Int?
+  createdAt            DateTime @default(now())
+
+  rekomendasi Rekomendasi @relation(fields: [rekomendasiId], references: [id], onDelete: Cascade)
+}
+
+model UmpanBalik {
+  id         Int      @id @default(autoincrement())
+  analisisId Int      @unique // 1 umpan balik per analisis
+  userId     Int?
+  rating     Int // 1–5, divalidasi di controller
+  komentar   String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  analisis AnalisisBarang @relation(fields: [analisisId], references: [id], onDelete: Cascade)
+  user     User?          @relation(fields: [userId], references: [id])
+}
+
+// ==================== BASIS PENGETAHUAN (FR-08, FR-12, FR-13) ====================
+
+// Aturan keputusan (class diagram: BasisPengetahuan)
+model BasisPengetahuan {
+  id         Int          @id @default(autoincrement())
+  kode       String // mis. "ELK-BATERAI-01", sama untuk semua versi aturan yang sama
+  namaAturan String
+  kategoriId Int? // null = berlaku untuk semua kategori
+  kondisi    Json // mis. { "fungsiUtama": "tidak_berfungsi" }
+  tindakan   Tindakan
+  bobot      Int          @default(0) // tambah/kurang skor tindakan
+  eliminasi  Boolean      @default(false) // true = aturan keselamatan, tindakan dibuang
+  alasan     String // ditampilkan ke pengguna
+  versi      Int          @default(0) // 0 = belum pernah dipublikasikan
+  status     StatusKonten @default(draft)
+  adminId    Int
+  createdAt  DateTime     @default(now())
+  updatedAt  DateTime     @updatedAt
+
+  kategori Kategori?        @relation(fields: [kategoriId], references: [id])
+  admin    User             @relation(fields: [adminId], references: [id])
+  audit    AuditPerubahan[]
+
+  @@index([kode])
+  @@index([status])
+}
+
+model FaktorDampak {
+  id        Int          @id @default(autoincrement())
+  kode      String
+  material  String // mis. "Plastik", "Logam"
+  tindakan  Tindakan
+  nilai     Float
+  satuan    String // mis. "kgCO2e/kg"
+  sumber    String
+  tahun     Int
+  versi     Int          @default(0)
+  status    StatusKonten @default(draft)
+  adminId   Int
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+
+  admin User @relation(fields: [adminId], references: [id])
+
+  @@index([kode])
+  @@index([material, tindakan, status])
+}
+
+// Hanya boleh ditambah, tidak boleh diubah/dihapus (FR-13)
+model AuditPerubahan {
+  id          Int         @id @default(autoincrement())
+  adminId     Int
+  jenisData   JenisData
+  dataId      Int
+  aturanId    Int? // terisi kalau jenisData = aturan
+  versi       Int?
+  status      StatusAudit
+  ringkasan   String
+  dataSebelum Json?
+  dataSesudah Json?
+  createdAt   DateTime    @default(now())
+
+  admin  User              @relation(fields: [adminId], references: [id])
+  aturan BasisPengetahuan? @relation(fields: [aturanId], references: [id])
+
+  @@index([jenisData, versi])
 }
