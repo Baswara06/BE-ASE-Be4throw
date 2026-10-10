@@ -9,6 +9,12 @@ const { success } = require('./utils/response');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+const kategoriRoutes = require('./routes/kategoriRoutes');
+const barangRoutes = require('./routes/barangRoutes');
+
+app.use('/api/kategori', kategoriRoutes);
+app.use('/api/barang', barangRoutes);
+
 // Global middlewares
 app.use(helmet()); // adds secure HTTP headers
 app.use(cors({ origin: process.env.FRONTEND_URL })); // only allow our front-end
