@@ -1,3 +1,4 @@
+const crypto = require('crypto');
 const jwt = require('jsonwebtoken');
 
 if (!process.env.JWT_SECRET) {
@@ -19,5 +20,15 @@ function createToken(user, rememberMe = false) {
 function verifyToken(token) {
   return jwt.verify(token, process.env.JWT_SECRET);
 }
+// Ubah token jadi hash SHA-256 (yang disimpan di DB cuma hash-nya)
+function hashToken(token) {
+  return crypto.createHash('sha256').update(token).digest('hex');
+}
 
-module.exports = { createToken, verifyToken };
+// Bikin token reset password acak (64 karakter) beserta hash-nya
+function generateResetToken() {
+  const token = crypto.randomBytes(32).toString('hex');
+  return { token, tokenHash: hashToken(token) };
+}
+
+module.exports = { createToken, verifyToken, generateResetToken, hashToken };

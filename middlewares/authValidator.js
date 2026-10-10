@@ -1,17 +1,15 @@
 const { body } = require('express-validator');
 
-const registerRules = [
-  body('nama')
-    .trim()
-    .notEmpty().withMessage('Nama wajib diisi')
-    .isLength({ max: 100 }).withMessage('Nama maksimal 100 karakter'),
-
+// Aturan email, dipakai di register, login, dan lupa password
+const emailRule = () =>
   body('email')
     .trim()
     .notEmpty().withMessage('Email wajib diisi').bail()
     .isEmail().withMessage('Format email tidak valid').bail()
-    .toLowerCase(),
+    .toLowerCase();
 
+// Aturan password baru + konfirmasinya, dipakai di register dan reset password
+const newPasswordRules = () => [
   body('password')
     .notEmpty().withMessage('Password wajib diisi').bail()
     .isLength({ min: 8, max: 72 }).withMessage('Password harus 8–72 karakter').bail()
@@ -24,19 +22,29 @@ const registerRules = [
     .withMessage('Konfirmasi password tidak sama'),
 ];
 
-const loginRules = [
-  body('email')
+const registerRules = [
+  body('nama')
     .trim()
-    .notEmpty().withMessage('Email wajib diisi').bail()
-    .isEmail().withMessage('Format email tidak valid').bail()
-    .toLowerCase(),
+    .notEmpty().withMessage('Nama wajib diisi')
+    .isLength({ max: 100 }).withMessage('Nama maksimal 100 karakter'),
+  emailRule(),
+  ...newPasswordRules(),
+];
 
+const loginRules = [
+  emailRule(),
   body('password').notEmpty().withMessage('Password wajib diisi'),
-
   body('ingatSaya')
     .optional()
     .isBoolean().withMessage('ingatSaya harus true atau false')
     .toBoolean(),
 ];
 
-module.exports = { registerRules, loginRules };
+const forgotPasswordRules = [emailRule()];
+
+const resetPasswordRules = [
+  body('token').trim().notEmpty().withMessage('Token reset wajib diisi'),
+  ...newPasswordRules(),
+];
+
+module.exports = { registerRules, loginRules, forgotPasswordRules, resetPasswordRules };
