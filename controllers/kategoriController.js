@@ -1,5 +1,5 @@
 const prisma = require('../utils/prisma');
-const { success } = require('../utils/response');
+const { success, fail } = require('../utils/response');
 
 // GET /api/kategori
 async function listKategori(req, res, next) {
@@ -25,4 +25,54 @@ async function listKategori(req, res, next) {
   }
 }
 
-module.exports = { listKategori };
+// Kolom pertanyaan yang dikirim ke front-end
+const pertanyaanSelect = {
+  id: true,
+  kode: true,
+  teks: true,
+  tipe: true,
+  opsi: true,
+  wajib: true,
+  bolehTidakTahu: true,
+  urutan: true,
+};
+
+// GET /api/kategori/:id/pertanyaan
+async function listPertanyaanKategori(req, res, next) {
+  try {
+    const id = Number(req.params.id);
+
+    const kategori = await prisma.kategori.findFirst({
+      where: { id, status: 'aktif' },
+      select: { id: true, nama: true },
+    });
+    if (!kategori) {
+      return fail(res, 404, 'Kategori tidak ditemukan');
+    }
+
+    // Ambil pertanyaan utama (tanpa induk), lanjutannya ditempel di dalamnya
+    const pertanyaan = await prisma.pertanyaan.findMany({
+      where: { kategoriId: id, status: 'aktif', indukId: null },
+      select: {
+        ...pertanyaanSelect,
+        lanjutan: {
+          where: { status: 'aktif' },
+          select: { ...pertanyaanSelect, tampilJika: true },
+          orderBy: { urutan: 'asc' },
+        },
+      },
+      orderBy: { urutan: 'asc' },
+    });
+
+    // Jangan mengarang pertanyaan: kalau kosong, kirim apa adanya + pesan
+    const message = pertanyaan.length
+      ? 'Daftar pertanyaan berhasil diambil'
+      : 'Pertanyaan untuk kategori ini belum tersedia';
+
+    return success(res, 200, message, { kategori, pertanyaan });
+  } catch (err) {
+    next(err);
+  }
+}
+
+module.exports = { listKategori, listPertanyaanKategori };
