@@ -1,6 +1,7 @@
 require('dotenv/config');
 const { PrismaClient } = require('@prisma/client');
 const bcrypt = require('bcrypt');
+const { dataAturan, keBarisAturan } = require('./dataAturan');
 
 const prisma = new PrismaClient();
 
@@ -204,6 +205,30 @@ async function seedPertanyaan() {
   }
 }
 
+// ==================== ATURAN (FR-10) ====================
+// Isi aturan ada di prisma/dataAturan.js.
+// Aturan yang kodenya sudah ada tidak ditimpa (bisa jadi sudah diedit admin).
+async function seedAturan(adminId) {
+  for (const [namaKategori, data] of Object.entries(dataAturan)) {
+    const kategori = await prisma.kategori.findUnique({ where: { nama: namaKategori } });
+    if (!kategori) continue;
+
+    let jumlahBaru = 0;
+    for (const aturan of data.aturan) {
+      for (const baris of keBarisAturan(data.prefix, aturan)) {
+        const sudahAda = await prisma.basisPengetahuan.findFirst({ where: { kode: baris.kode } });
+        if (sudahAda) continue;
+
+        await prisma.basisPengetahuan.create({
+          data: { ...baris, kategoriId: kategori.id, adminId, versi: 1, status: 'aktif' },
+        });
+        jumlahBaru++;
+      }
+    }
+    console.log(`✔ Aturan ${namaKategori}: ${jumlahBaru} baru`);
+  }
+}
+
 async function main() {
   // 1. Akun admin (kredensial dari .env, bukan hardcode)
   const { ADMIN_EMAIL, ADMIN_PASSWORD } = process.env;
@@ -212,7 +237,7 @@ async function main() {
   }
 
   const passwordHash = await bcrypt.hash(ADMIN_PASSWORD, 10);
-  await prisma.user.upsert({
+  const admin = await prisma.user.upsert({
     where: { email: ADMIN_EMAIL },
     update: {}, // kalau sudah ada, jangan diubah
     create: {
@@ -241,7 +266,12 @@ async function main() {
     }
     console.log(`✔ Kategori ${k.nama} + ${k.barang.length} barang`);
   }
-await seedPertanyaan();
+
+  // 3. Pertanyaan per kategori (FR-09)
+  await seedPertanyaan();
+
+  // 4. Aturan awal basis pengetahuan (FR-10) — DRAFT, divalidasi Shakira
+  await seedAturan(admin.id);
 }
 
 main()
@@ -249,4 +279,4 @@ main()
     console.error('Seed gagal:', err.message);
     process.exit(1);
   })
-  .finally(() => prisma.$disconnect());
+  .finally(() => prisma.$disconnect());

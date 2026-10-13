@@ -170,8 +170,8 @@ model AnalisisBarang {
   userId            Int? // null = analisis tanpa login (NFR-07)
   barangId          Int
   status            StatusAnalisis @default(draft)
-  versiAturan       Int? // NFR-11
-  versiFaktor       Int? // NFR-11
+  versiAturan       Json? // [{ "id": 3, "versi": 2 }, ...] aturan yang dipakai (SDD Skema Pengujian no. 10)
+  versiFaktor       Json? // [{ "id": 1, "versi": 1 }, ...] faktor dampak yang dipakai (FR-13)
   pesanKeterbatasan String? // diisi kalau aturan/faktor tidak tersedia
   beratKg           Float? // berat dari user di Detail Barang (kg)
   kodeAksesHash     String?        @unique // hash kode akses analisis tamu
@@ -198,8 +198,7 @@ model KondisiBarang {
   kelengkapan      Int? // 0–100 persen, null = tidak tahu
   mengandungBahaya Boolean? // null = tidak tahu
   jenisBahaya      String[] // mis. ["baterai", "benda_tajam", "bahan_kimia"]
-     jawaban          Json? // jawaban mentah dari FE (termasuk "tidak_tahu"), buat ngisi ulang form
-  jawabanLain      Json? // jawaban pertanyaan khusus kategori
+  jawaban          Json? // jawaban mentah dari FE (termasuk "tidak_tahu"), buat ngisi ulang form
   createdAt        DateTime     @default(now())
   updatedAt        DateTime     @updatedAt
 
@@ -279,16 +278,16 @@ model UmpanBalik {
 // Aturan keputusan (class diagram: BasisPengetahuan)
 model BasisPengetahuan {
   id         Int          @id @default(autoincrement())
-  kode       String // mis. "ELK-BATERAI-01", sama untuk semua versi aturan yang sama
+  kode       String // mis. "ELK-03-DU"
   namaAturan String
   kategoriId Int? // null = berlaku untuk semua kategori
-  kondisi    Json // mis. { "fungsiUtama": "tidak_berfungsi" }
+  kondisi    Json // format: lihat komentar di logic/ruleEngine.js
   tindakan   Tindakan
   bobot      Int          @default(0) // tambah/kurang skor tindakan
   eliminasi  Boolean      @default(false) // true = aturan keselamatan, tindakan dibuang
   alasan     String // ditampilkan ke pengguna
-  versi      Int          @default(0) // 0 = belum pernah dipublikasikan
-  status     StatusKonten @default(draft)
+  versi      Int          @default(1) // naik 1 setiap diubah (keputusan 14 Okt)
+  status     StatusKonten @default(aktif)
   adminId    Int
   createdAt  DateTime     @default(now())
   updatedAt  DateTime     @updatedAt
@@ -310,8 +309,8 @@ model FaktorDampak {
   satuan    String // mis. "kgCO2e/kg"
   sumber    String
   tahun     Int
-  versi     Int          @default(0)
-  status    StatusKonten @default(draft)
+  versi     Int          @default(1) // naik 1 setiap diubah (keputusan 14 Okt)
+  status    StatusKonten @default(aktif)
   adminId   Int
   createdAt DateTime     @default(now())
   updatedAt DateTime     @updatedAt
