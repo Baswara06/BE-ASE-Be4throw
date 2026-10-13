@@ -10,6 +10,7 @@ const authRoutes = require('./routes/authRoutes');
 const kategoriRoutes = require('./routes/kategoriRoutes');
 const barangRoutes = require('./routes/barangRoutes');
 const analisisRoutes = require('./routes/analisisRoutes');
+const riwayatRoutes = require('./routes/riwayatRoutes');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -29,6 +30,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/kategori', kategoriRoutes);
 app.use('/api/barang', barangRoutes);
 app.use('/api/analisis', analisisRoutes);
+app.use('/api/riwayat', riwayatRoutes); // FR-05
 
 // 4. Harus paling akhir: 404 lalu error handler
 app.use(notFound);
@@ -36,4 +38,4 @@ app.use(errorHandler);
 
 app.listen(PORT, () => {
   console.log(`Server running on http://localhost:${PORT}`);
-});
+});
