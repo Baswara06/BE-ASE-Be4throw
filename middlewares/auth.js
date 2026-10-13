@@ -47,4 +47,12 @@ function requireAdmin(req, res, next) {
   next();
 }
 
-module.exports = { requireAuth, requireAdmin };
+// Untuk endpoint yang boleh diakses tamu.
+// Tanpa header Authorization → lanjut sebagai tamu (req.user kosong).
+// Ada header → wajib valid, biar token kedaluwarsa tidak diam-diam jadi tamu.
+function optionalAuth(req, res, next) {
+  if (!req.headers.authorization) return next();
+  return requireAuth(req, res, next);
+}
+
+module.exports = { requireAuth, requireAdmin, optionalAuth };

@@ -173,6 +173,8 @@ model AnalisisBarang {
   versiAturan       Int? // NFR-11
   versiFaktor       Int? // NFR-11
   pesanKeterbatasan String? // diisi kalau aturan/faktor tidak tersedia
+  beratKg           Float? // berat dari user di Detail Barang (kg)
+  kodeAksesHash     String?        @unique // hash kode akses analisis tamu
   createdAt         DateTime       @default(now())
   updatedAt         DateTime       @updatedAt
 
@@ -196,6 +198,7 @@ model KondisiBarang {
   kelengkapan      Int? // 0–100 persen, null = tidak tahu
   mengandungBahaya Boolean? // null = tidak tahu
   jenisBahaya      String[] // mis. ["baterai", "benda_tajam", "bahan_kimia"]
+     jawaban          Json? // jawaban mentah dari FE (termasuk "tidak_tahu"), buat ngisi ulang form
   jawabanLain      Json? // jawaban pertanyaan khusus kategori
   createdAt        DateTime     @default(now())
   updatedAt        DateTime     @updatedAt
