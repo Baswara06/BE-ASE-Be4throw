@@ -2,7 +2,8 @@ const prisma = require('../utils/prisma');
 const { success, fail } = require('../utils/response');
 const { buatKodeAkses, hashKodeAkses } = require('../utils/kodeAkses');
 const { validasiJawaban, keKondisiBarang } = require('../logic/validasiJawaban');
-const { jalankanAnalisis, SKOR_AWAL } = require('../logic/ruleEngine');
+const { jalankanAnalisis } = require('../logic/ruleEngine');
+const { susunRekomendasi, pesanAlternatif } = require('../logic/rekomendasi');
 const { LABEL_TINDAKAN } = require('../logic/tindakan');
 
 // Pesan untuk kondisi khusus FR-10 (SDD Use Case Analisis Barang, skenario eksepsional)
@@ -16,20 +17,79 @@ const PESAN_TANPA_TINDAKAN_AMAN =
 
 const includeAnalisis = {
   kondisi: true,
-  barang: { select: { id: true, nama: true, gambar: true, estimasiBerat: true, kategoriId: true } },
+  barang: {
+    select: {
+      id: true,
+      nama: true,
+      gambar: true,
+      estimasiBerat: true,
+      kategoriId: true,
+      kategori: { select: { nama: true } },
+    },
+  },
+  // Hasil analisis (FR-10 s/d FR-12), kosong selama masih draft
+  pemeriksaanKeselamatan: true,
+  skorSolusi: { orderBy: { peringkat: 'asc' } },
+  rekomendasi: true,
 };
 
 const pesanSimpan = (kirim) =>
   kirim ? 'Jawaban tersimpan dan siap dianalisis' : 'Jawaban sementara tersimpan';
 
+// Satu rekomendasi untuk FE
+function formatRekomendasi(r) {
+  return {
+    tindakan: r.tindakan,
+    label: LABEL_TINDAKAN[r.tindakan],
+    skor: r.skor,
+    alasan: r.alasan,
+    langkahPraktis: r.langkahPraktis,
+    peringatan: r.peringatan,
+  };
+}
+
+// Hasil analisis yang sudah tersimpan di DB (FR-10, FR-11, FR-12)
+function formatHasil(analisis) {
+  const pemeriksaan = analisis.pemeriksaanKeselamatan;
+  const dieliminasi = pemeriksaan?.tindakanDieliminasi ?? [];
+
+  // Urutkan alternatif sesuai peringkat skor (skor sama → urutan hierarki dari rule engine)
+  const peringkat = new Map(analisis.skorSolusi.map((s) => [s.tindakan, s.peringkat]));
+  const utama = analisis.rekomendasi.find((r) => r.jenis === 'utama') ?? null;
+  const alternatif = analisis.rekomendasi
+    .filter((r) => r.jenis === 'alternatif')
+    .sort((a, b) => peringkat.get(a.tindakan) - peringkat.get(b.tindakan));
+
+  return {
+    keselamatan: {
+      aman: pemeriksaan ? !pemeriksaan.adaBahaya : true,
+      tindakanDieliminasi: dieliminasi,
+      peringatan: pemeriksaan?.peringatan ?? [],
+    },
+    skor: analisis.skorSolusi.map((s) => ({
+      tindakan: s.tindakan,
+      label: LABEL_TINDAKAN[s.tindakan],
+      skor: s.skor,
+      peringkat: s.peringkat,
+      aman: !dieliminasi.includes(s.tindakan),
+    })),
+    rekomendasiUtama: utama ? formatRekomendasi(utama) : null, // FR-11
+    alternatif: alternatif.map(formatRekomendasi), // FR-12
+    pesanAlternatif: pesanAlternatif(utama, alternatif.length, analisis.skorSolusi, dieliminasi),
+    pesanKeterbatasan: analisis.pesanKeterbatasan,
+  };
+}
+
 // Bentuk data yang dikirim ke FE (hash kode akses tidak ikut dikirim)
 function formatAnalisis(analisis, kodeAkses) {
+  const { kategori, ...barang } = analisis.barang;
   return {
     id: analisis.id,
     status: analisis.status,
-    barang: analisis.barang,
+    barang: { ...barang, kategori: kategori?.nama ?? null },
     beratKg: analisis.beratKg,
     jawaban: analisis.kondisi?.jawaban ?? {},
+    hasil: analisis.status === 'selesai' ? formatHasil(analisis) : null,
     ...(kodeAkses && { kodeAkses }), // hanya muncul sekali, saat tamu membuat analisis
   };
 }
@@ -106,7 +166,7 @@ async function buatAnalisis(req, res, next) {
   }
 }
 
-// GET /api/analisis/:id
+// GET /api/analisis/:id — kalau status selesai, ikut mengirim hasil (FR-11, FR-12)
 async function ambilAnalisis(req, res, next) {
   try {
     const analisis = await cariAnalisis(req, Number(req.params.id));
@@ -154,44 +214,6 @@ async function updateKondisi(req, res, next) {
   } catch (err) {
     next(err);
   }
-}
-
-// Alasan tertulis untuk satu tindakan (dipakai FR-11/FR-12)
-function alasanRekomendasi(s) {
-  if (s.alasan.length) return s.alasan.join(' ');
-  if (s.skor < SKOR_AWAL) {
-    return 'Tindakan ini masih aman, tetapi skornya lebih rendah karena kondisi barang kurang mendukung.';
-  }
-  return 'Tindakan ini aman dilakukan, tetapi belum ada aturan khusus yang mendukungnya untuk kondisi barang ini.';
-}
-
-// Bentuk hasil analisis yang dikirim ke FE (FR-10)
-function formatHasil(analisisId, hasil, rekomendasi, pesanKeterbatasan) {
-  const { keselamatan } = hasil;
-  return {
-    id: analisisId,
-    status: 'selesai',
-    keselamatan: {
-      aman: !keselamatan.adaBahaya,
-      tindakanDieliminasi: keselamatan.tindakanDieliminasi,
-      peringatan: keselamatan.peringatan,
-    },
-    skor: hasil.skor.map(({ tindakan, skor, peringkat, aman }) => ({
-      tindakan,
-      label: LABEL_TINDAKAN[tindakan],
-      skor,
-      peringkat,
-      aman,
-    })),
-    rekomendasi: rekomendasi.map(({ tindakan, jenis, skor, alasan }) => ({
-      tindakan,
-      label: LABEL_TINDAKAN[tindakan],
-      jenis,
-      skor,
-      alasan,
-    })),
-    pesanKeterbatasan,
-  };
 }
 
 // Kalau proses gagal, cukup tandai "gagal". Jawaban pengguna TIDAK dihapus (NFR-08).
@@ -243,18 +265,15 @@ async function prosesAnalisis(req, res, next) {
     // Tahap 2 & 3 – Pemeriksaan keselamatan + hitung skor (logic/ruleEngine.js)
     const hasil = jalankanAnalisis(analisis.kondisi, aturan);
 
-    // Rekomendasi = tindakan yang aman dan skornya di atas 0. Peringkat 1 = utama.
-    const rekomendasi = hasil.skor
-      .filter((s) => s.aman && s.skor > 0)
-      .map((s, i) => ({
-        analisisId: analisis.id,
-        tindakan: s.tindakan,
-        jenis: i === 0 ? 'utama' : 'alternatif',
-        skor: s.skor,
-        alasan: alasanRekomendasi(s),
-        langkahPraktis: [], // diisi di FR-11
-        peringatan: [],
-      }));
+    // Rekomendasi utama + alternatif yang aman dan layak (logic/rekomendasi.js)
+    const rekomendasi = susunRekomendasi(
+      hasil.skor,
+      analisis.barang.kategori?.nama,
+      hasil.keselamatan
+    ).map((r) => ({
+      ...r,
+      analisisId: analisis.id,
+    }));
 
     let pesanKeterbatasan = null;
     if (hasil.keterbatasan) pesanKeterbatasan = PESAN_TANPA_ATURAN;
@@ -291,16 +310,16 @@ async function prosesAnalisis(req, res, next) {
       }),
     ]);
 
-    return success(
-      res,
-      200,
-      'Analisis selesai',
-      formatHasil(analisis.id, hasil, rekomendasi, pesanKeterbatasan)
-    );
+    // Ambil ulang dari DB supaya bentuk response sama persis dengan GET /api/analisis/:id
+    const selesai = await prisma.analisisBarang.findUnique({
+      where: { id: analisis.id },
+      include: includeAnalisis,
+    });
+    return success(res, 200, 'Analisis selesai', formatAnalisis(selesai));
   } catch (err) {
     if (analisis) await tandaiGagal(analisis.id);
     next(err);
   }
 }
 
-module.exports = { buatAnalisis, ambilAnalisis, updateKondisi, prosesAnalisis };
+module.exports = { buatAnalisis, ambilAnalisis, updateKondisi, prosesAnalisis };

@@ -58,4 +58,26 @@ describe('periksaKeselamatan', () => {
     expect(hasil.tindakanDieliminasi).toEqual(['perbaiki']);
     expect(hasil.peringatan).toEqual(['Jangan diperbaiki sendiri.']);
   });
+
+  test('langkah pengganti hanya untuk tindakan yang masih boleh', () => {
+    const hasil = periksaKeselamatan(kondisi(true, ['bahan_kimia']));
+    expect(Object.keys(hasil.langkahPengganti)).toEqual(['daur_ulang']);
+  });
+
+  test('beberapa bahaya → langkah pengganti digabung', () => {
+    const hasil = periksaKeselamatan(kondisi(true, ['baterai', 'benda_tajam']));
+    const daurUlang = hasil.langkahPengganti.daur_ulang;
+    expect(daurUlang.some((l) => /baterai/.test(l))).toBe(true);
+    expect(daurUlang.some((l) => /tajam/.test(l))).toBe(true);
+  });
+
+  test('perbaiki yang dibuang aturan DB tidak dapat langkah pengganti', () => {
+    const dariDb = [{ tindakan: 'perbaiki', alasan: 'Jangan diperbaiki.' }];
+    const hasil = periksaKeselamatan(kondisi(true, ['baterai']), dariDb);
+    expect(hasil.langkahPengganti.perbaiki).toBeUndefined();
+  });
+
+  test('bahaya tidak tahu → tidak ada langkah pengganti', () => {
+    expect(periksaKeselamatan(kondisi(null)).langkahPengganti).toEqual({});
+  });
 });
