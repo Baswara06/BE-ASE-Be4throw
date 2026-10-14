@@ -67,10 +67,11 @@ enum JenisData {
   faktor_dampak
 }
 
-enum StatusAudit {
-  dipublikasikan
-  disimpan
-  draf
+// Jenis perubahan yang dicatat di AuditPerubahan (FR-15)
+enum JenisPerubahan {
+  tambah
+  ubah
+  hapus
 }
 
 // ==================== AKUN (FR-01, FR-04) ====================
@@ -278,7 +279,7 @@ model UmpanBalik {
 // Aturan keputusan (class diagram: BasisPengetahuan)
 model BasisPengetahuan {
   id         Int          @id @default(autoincrement())
-  kode       String // mis. "ELK-03-DU"
+  kode       String       @unique // mis. "ELK-03-DU"
   namaAturan String
   kategoriId Int? // null = berlaku untuk semua kategori
   kondisi    Json // format: lihat komentar di logic/ruleEngine.js
@@ -292,17 +293,15 @@ model BasisPengetahuan {
   createdAt  DateTime     @default(now())
   updatedAt  DateTime     @updatedAt
 
-  kategori Kategori?        @relation(fields: [kategoriId], references: [id])
-  admin    User             @relation(fields: [adminId], references: [id])
-  audit    AuditPerubahan[]
+  kategori Kategori? @relation(fields: [kategoriId], references: [id])
+  admin    User      @relation(fields: [adminId], references: [id])
 
-  @@index([kode])
   @@index([status])
 }
 
 model FaktorDampak {
   id        Int          @id @default(autoincrement())
-  kode      String
+  kode      String       @unique
   material  String // mis. "Plastik", "Logam"
   tindakan  Tindakan
   nilai     Float
@@ -317,26 +316,26 @@ model FaktorDampak {
 
   admin User @relation(fields: [adminId], references: [id])
 
-  @@index([kode])
   @@index([material, tindakan, status])
 }
 
-// Hanya boleh ditambah, tidak boleh diubah/dihapus (FR-13)
+// Catatan perubahan (FR-15). Hanya boleh ditambah, tidak boleh diubah/dihapus.
+// Generik: jenisData + dataId menunjuk data apa pun (tanpa FK, supaya catatan
+// tetap utuh walaupun datanya sudah dihapus).
 model AuditPerubahan {
-  id          Int         @id @default(autoincrement())
-  adminId     Int
-  jenisData   JenisData
-  dataId      Int
-  aturanId    Int? // terisi kalau jenisData = aturan
-  versi       Int?
-  status      StatusAudit
-  ringkasan   String
-  dataSebelum Json?
-  dataSesudah Json?
-  createdAt   DateTime    @default(now())
+  id             Int            @id @default(autoincrement())
+  adminId        Int
+  jenisPerubahan JenisPerubahan
+  jenisData      JenisData
+  dataId         Int
+  versi          Int? // terisi untuk aturan & faktor dampak
+  ringkasan      String // mis. "Mengubah aturan ELK-03-DU"
+  dataSebelum    Json? // null kalau tambah
+  dataSesudah    Json? // null kalau hapus
+  createdAt      DateTime       @default(now()) // waktu perubahan (UTC)
 
-  admin  User              @relation(fields: [adminId], references: [id])
-  aturan BasisPengetahuan? @relation(fields: [aturanId], references: [id])
+  admin User @relation(fields: [adminId], references: [id])
 
-  @@index([jenisData, versi])
+  @@index([jenisData, dataId])
+  @@index([createdAt])
 }

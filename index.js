@@ -11,6 +11,7 @@ const kategoriRoutes = require('./routes/kategoriRoutes');
 const barangRoutes = require('./routes/barangRoutes');
 const analisisRoutes = require('./routes/analisisRoutes');
 const riwayatRoutes = require('./routes/riwayatRoutes');
+const adminRoutes = require('./routes/adminRoutes');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -31,6 +32,7 @@ app.use('/api/kategori', kategoriRoutes);
 app.use('/api/barang', barangRoutes);
 app.use('/api/analisis', analisisRoutes);
 app.use('/api/riwayat', riwayatRoutes); // FR-05
+app.use('/api/admin', adminRoutes); // FR-14, FR-15 (wajib login admin)
 
 // 4. Harus paling akhir: 404 lalu error handler
 app.use(notFound);

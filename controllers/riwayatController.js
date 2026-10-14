@@ -27,7 +27,7 @@ function formatRiwayat(a) {
       id: a.barang.id,
       nama: a.barang.nama,
       gambar: a.barang.gambar,
-      kategori: a.barang.kategori?.nama ?? null,
+      kategori: a.barang.kategori, // { id, nama }, sama dengan GET /api/barang/:id
     },
     rekomendasiUtama: utama ? ringkas(utama) : null,
     alternatif: alternatif.map(ringkas),
@@ -59,7 +59,7 @@ async function ambilRiwayat(req, res, next) {
           updatedAt: true,
           pesanKeterbatasan: true,
           barang: {
-            select: { id: true, nama: true, gambar: true, kategori: { select: { nama: true } } },
+            select: { id: true, nama: true, gambar: true, kategori: { select: { id: true, nama: true } } },
           },
           pemeriksaanKeselamatan: { select: { adaBahaya: true } },
           rekomendasi: { select: { tindakan: true, jenis: true, skor: true, langkahPraktis: true } },

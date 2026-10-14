@@ -82,11 +82,12 @@ function formatHasil(analisis) {
 
 // Bentuk data yang dikirim ke FE (hash kode akses tidak ikut dikirim)
 function formatAnalisis(analisis, kodeAkses) {
-  const { kategori, ...barang } = analisis.barang;
+  // Bentuk barang disamakan dengan GET /api/barang/:id → kategori: { id, nama }
+  const { kategoriId, kategori, ...barang } = analisis.barang;
   return {
     id: analisis.id,
     status: analisis.status,
-    barang: { ...barang, kategori: kategori?.nama ?? null },
+    barang: { ...barang, kategori: { id: kategoriId, nama: kategori?.nama ?? null } },
     beratKg: analisis.beratKg,
     jawaban: analisis.kondisi?.jawaban ?? {},
     hasil: analisis.status === 'selesai' ? formatHasil(analisis) : null,
