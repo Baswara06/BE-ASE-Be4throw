@@ -5,6 +5,12 @@ const { validasiJawaban, keKondisiBarang } = require('../logic/validasiJawaban')
 const { jalankanAnalisis } = require('../logic/ruleEngine');
 const { susunRekomendasi, pesanAlternatif } = require('../logic/rekomendasi');
 const { LABEL_TINDAKAN } = require('../logic/tindakan');
+const {
+  hitungDampak,
+  catatanDampak,
+  MANFAAT_KUALITATIF,
+  PESAN_BELUM_DIHITUNG,
+} = require('../logic/dampak');
 
 // Pesan untuk kondisi khusus FR-10 (SDD Use Case Analisis Barang, skenario eksepsional)
 const PESAN_TANPA_ATURAN =
@@ -27,10 +33,11 @@ const includeAnalisis = {
       kategori: { select: { nama: true } },
     },
   },
-  // Hasil analisis (FR-10 s/d FR-12), kosong selama masih draft
+  // Hasil analisis (FR-10 s/d FR-13), kosong selama masih draft
   pemeriksaanKeselamatan: true,
   skorSolusi: { orderBy: { peringkat: 'asc' } },
-  rekomendasi: true,
+  rekomendasi: { include: { dampak: true } }, // dampak = DampakLingkungan (FR-13)
+  umpanBalik: true, // FR-16
 };
 
 const pesanSimpan = (kirim) =>
@@ -48,7 +55,48 @@ function formatRekomendasi(r) {
   };
 }
 
-// Hasil analisis yang sudah tersimpan di DB (FR-10, FR-11, FR-12)
+// Satu baris dampak untuk FE. Satuan ditulis jelas supaya FE tinggal menampilkan.
+function formatRincianDampak(r) {
+  const d = r.dampak;
+  return {
+    tindakan: r.tindakan,
+    label: LABEL_TINDAKAN[r.tindakan],
+    jenis: r.jenis, // utama / alternatif
+    pengalihanLimbah: d.limbahDialihkanKg == null ? null : { nilai: d.limbahDialihkanKg, satuan: 'kg' },
+    emisiDihindari: d.emisiDihindariKgCO2e == null ? null : { nilai: d.emisiDihindariKgCO2e, satuan: 'kg CO2e' },
+    asumsi: d.asumsi,
+    sumber: d.sumber, // null = faktor belum tersedia
+    tahunFaktor: d.tahunFaktor,
+    manfaatKualitatif: MANFAAT_KUALITATIF[r.tindakan],
+  };
+}
+
+// Dampak lingkungan (FR-13). daftarRekomendasi sudah urut: utama dulu, lalu alternatif.
+// versiFaktor null = dampak belum dihitung (gagal / analisis lama) → FE tampilkan tombol Coba Lagi.
+function formatDampak(analisis, daftarRekomendasi) {
+  const material = analisis.barang.kategori?.nama ?? null;
+
+  if (analisis.versiFaktor === null) {
+    return {
+      status: 'belum_dihitung',
+      beratKg: analisis.beratKg,
+      material,
+      rincian: [],
+      catatan: [PESAN_BELUM_DIHITUNG],
+    };
+  }
+
+  const denganDampak = daftarRekomendasi.filter((r) => r.dampak);
+  return {
+    status: 'selesai',
+    beratKg: analisis.beratKg,
+    material,
+    rincian: denganDampak.map(formatRincianDampak),
+    catatan: catatanDampak(denganDampak.map((r) => r.dampak), analisis.beratKg),
+  };
+}
+
+// Hasil analisis yang sudah tersimpan di DB (FR-10 s/d FR-13)
 function formatHasil(analisis) {
   const pemeriksaan = analisis.pemeriksaanKeselamatan;
   const dieliminasi = pemeriksaan?.tindakanDieliminasi ?? [];
@@ -77,6 +125,17 @@ function formatHasil(analisis) {
     alternatif: alternatif.map(formatRekomendasi), // FR-12
     pesanAlternatif: pesanAlternatif(utama, alternatif.length, analisis.skorSolusi, dieliminasi),
     pesanKeterbatasan: analisis.pesanKeterbatasan,
+    dampak: formatDampak(analisis, utama ? [utama, ...alternatif] : alternatif), // FR-13
+  };
+}
+
+// Umpan balik (FR-16) untuk isi ulang form
+function formatUmpanBalik(u) {
+  return {
+    rating: u.rating,
+    komentar: u.komentar,
+    createdAt: u.createdAt,
+    updatedAt: u.updatedAt,
   };
 }
 
@@ -91,6 +150,7 @@ function formatAnalisis(analisis, kodeAkses) {
     beratKg: analisis.beratKg,
     jawaban: analisis.kondisi?.jawaban ?? {},
     hasil: analisis.status === 'selesai' ? formatHasil(analisis) : null,
+    umpanBalik: analisis.umpanBalik ? formatUmpanBalik(analisis.umpanBalik) : null, // FR-16
     ...(kodeAkses && { kodeAkses }), // hanya muncul sekali, saat tamu membuat analisis
   };
 }
@@ -230,6 +290,64 @@ async function tandaiGagal(id) {
   }
 }
 
+// Hitung & simpan dampak lingkungan untuk semua rekomendasi analisis ini (FR-13).
+// Faktor diambil dari DB (yang aktif), dicari lewat NAMA KATEGORI barang,
+// karena ganti nama kategori tidak ikut mengubah Barang.material.
+async function simpanDampak(analisisId) {
+  const analisis = await prisma.analisisBarang.findUnique({
+    where: { id: analisisId },
+    select: {
+      beratKg: true,
+      barang: { select: { kategori: { select: { nama: true } } } },
+      rekomendasi: { select: { id: true, tindakan: true } },
+    },
+  });
+
+  const material = analisis.barang.kategori.nama;
+  const daftarFaktor = await prisma.faktorDampak.findMany({
+    where: { status: 'aktif', material },
+    select: { id: true, versi: true, material: true, tindakan: true, nilai: true, satuan: true, sumber: true, tahun: true },
+  });
+
+  // Hitung di logic/dampak.js (fungsi murni, ada unit test-nya)
+  const hasil = hitungDampak({
+    beratKg: analisis.beratKg,
+    material,
+    daftarTindakan: analisis.rekomendasi.map((r) => r.tindakan),
+    daftarFaktor,
+  });
+
+  const idRekomendasi = new Map(analisis.rekomendasi.map((r) => [r.tindakan, r.id]));
+
+  // Hapus dulu dampak lama (kalau ada), lalu simpan yang baru + catat versi faktor yang dipakai.
+  // versiFaktor terisi (boleh []) = tanda dampak sudah dihitung.
+  await prisma.$transaction([
+    prisma.dampakLingkungan.deleteMany({ where: { rekomendasiId: { in: [...idRekomendasi.values()] } } }),
+    prisma.dampakLingkungan.createMany({
+      data: hasil.rincian.map(({ tindakan, ...dampak }) => ({
+        ...dampak,
+        rekomendasiId: idRekomendasi.get(tindakan),
+      })),
+    }),
+    prisma.analisisBarang.update({
+      where: { id: analisisId },
+      data: { versiFaktor: hasil.versiFaktor },
+    }),
+  ]);
+}
+
+// Dipakai setelah analisis selesai: kalau dampak gagal dihitung, rekomendasi tetap aman
+// dan pengguna bisa mencoba lagi lewat POST /api/analisis/:id/dampak (SRS FR-13, skenario eksepsional).
+async function cobaSimpanDampak(analisisId) {
+  try {
+    await simpanDampak(analisisId);
+    return true;
+  } catch (err) {
+    console.error('Gagal menghitung dampak lingkungan:', err.message);
+    return false;
+  }
+}
+
 // POST /api/analisis/:id/proses (FR-10)
 async function prosesAnalisis(req, res, next) {
   let analisis = null;
@@ -311,16 +429,91 @@ async function prosesAnalisis(req, res, next) {
       }),
     ]);
 
+    // Tahap tambahan – Dampak lingkungan (FR-13). Gagal di sini tidak membatalkan hasil analisis.
+    const dampakBerhasil = await cobaSimpanDampak(analisis.id);
+
     // Ambil ulang dari DB supaya bentuk response sama persis dengan GET /api/analisis/:id
     const selesai = await prisma.analisisBarang.findUnique({
       where: { id: analisis.id },
       include: includeAnalisis,
     });
-    return success(res, 200, 'Analisis selesai', formatAnalisis(selesai));
+    const message = dampakBerhasil
+      ? 'Analisis selesai'
+      : 'Analisis selesai, tetapi dampak lingkungan belum berhasil dihitung';
+    return success(res, 200, message, formatAnalisis(selesai));
   } catch (err) {
     if (analisis) await tandaiGagal(analisis.id);
     next(err);
   }
 }
 
-module.exports = { buatAnalisis, ambilAnalisis, updateKondisi, prosesAnalisis };
+// POST /api/analisis/:id/dampak (FR-13) — tombol "Coba Lagi" kalau dampak belum berhasil dihitung
+async function hitungUlangDampak(req, res, next) {
+  try {
+    const analisis = await cariAnalisis(req, Number(req.params.id));
+    if (!analisis) return fail(res, 404, 'Analisis tidak ditemukan');
+
+    if (analisis.status !== 'selesai') {
+      return fail(res, 409, 'Analisis belum selesai, jadi dampak lingkungan belum bisa dihitung');
+    }
+    // Sudah pernah dihitung → jangan dihitung ulang, supaya hasil tetap sesuai versi faktor yang tercatat
+    if (analisis.versiFaktor !== null) {
+      return fail(res, 409, 'Dampak lingkungan untuk analisis ini sudah dihitung');
+    }
+
+    await simpanDampak(analisis.id);
+
+    const terbaru = await prisma.analisisBarang.findUnique({
+      where: { id: analisis.id },
+      include: includeAnalisis,
+    });
+    return success(res, 200, 'Dampak lingkungan berhasil dihitung', formatAnalisis(terbaru));
+  } catch (err) {
+    next(err);
+  }
+}
+
+// PUT /api/analisis/:id/umpan-balik (FR-16)
+// 1 umpan balik per analisis; kirim ulang = memperbarui. Tamu boleh (pakai X-Kode-Akses).
+async function kirimUmpanBalik(req, res, next) {
+  try {
+    const analisis = await cariAnalisis(req, Number(req.params.id));
+    if (!analisis) return fail(res, 404, 'Analisis tidak ditemukan');
+
+    // Pre-kondisi SRS: rekomendasi sudah ditampilkan → analisis harus selesai
+    if (analisis.status !== 'selesai') {
+      return fail(res, 409, 'Umpan balik baru bisa diberikan setelah hasil rekomendasi keluar');
+    }
+
+    const data = {
+      rating: req.body.rating,
+      komentar: req.body.komentar || null, // tidak dikirim / string kosong → null
+    };
+
+    // upsert = update kalau sudah ada, create kalau belum (analisisId unik)
+    const umpanBalik = await prisma.umpanBalik.upsert({
+      where: { analisisId: analisis.id },
+      create: { ...data, analisisId: analisis.id, userId: req.user ? req.user.id : null },
+      update: data,
+    });
+
+    const baru = !analisis.umpanBalik;
+    return success(
+      res,
+      baru ? 201 : 200,
+      baru ? 'Terima kasih, umpan balik berhasil dikirim' : 'Umpan balik berhasil diperbarui',
+      formatUmpanBalik(umpanBalik)
+    );
+  } catch (err) {
+    next(err);
+  }
+}
+
+module.exports = {
+  buatAnalisis,
+  ambilAnalisis,
+  updateKondisi,
+  prosesAnalisis,
+  hitungUlangDampak,
+  kirimUmpanBalik,
+};

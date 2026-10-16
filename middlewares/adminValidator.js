@@ -1,5 +1,6 @@
 const { body, param, query } = require('express-validator');
 const { TINDAKAN } = require('../logic/tindakan');
+const { satuanDidukung, SATUAN_FAKTOR } = require('../logic/dampak');
 
 // Aturan validasi kelola data admin (FR-14).
 // wajib = true untuk tambah (POST); false untuk ubah (PUT, boleh kirim sebagian field).
@@ -128,7 +129,10 @@ const faktorRules = (wajib) => [
   teks('material', 'Material', 50, wajib),
   tindakan(wajib),
   field('nilai', wajib).isFloat().withMessage('nilai harus berupa angka').toFloat(),
-  teks('satuan', 'Satuan', 30, wajib),
+  // Kalkulator dampak (FR-13) hanya bisa menghitung faktor per kg barang
+  teks('satuan', 'Satuan', 30, wajib)
+    .custom(satuanDidukung)
+    .withMessage(`Satuan harus "${SATUAN_FAKTOR}" (kg CO2e per kg barang)`),
   teks('sumber', 'Sumber', 255, wajib),
   field('tahun', wajib)
     .isInt({ min: 1990, max: new Date().getUTCFullYear() })

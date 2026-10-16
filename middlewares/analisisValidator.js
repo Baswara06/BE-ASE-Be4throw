@@ -25,4 +25,18 @@ const idAnalisisRules = [
   param('id').isInt({ min: 1 }).withMessage('ID analisis harus berupa angka'),
 ];
 
-module.exports = { buatAnalisisRules, kondisiRules, idAnalisisRules };
+// Umpan balik (FR-16): rating wajib 1–5, komentar opsional maks 500 karakter
+const umpanBalikRules = [
+  body('rating')
+    .exists({ values: 'null' }).withMessage('Rating wajib diisi').bail()
+    .isInt({ min: 1, max: 5 }).withMessage('Rating harus angka bulat 1 sampai 5')
+    .toInt(),
+
+  body('komentar')
+    .optional({ values: 'null' })
+    .isString().withMessage('Komentar harus berupa teks').bail()
+    .trim()
+    .isLength({ max: 500 }).withMessage('Komentar maksimal 500 karakter'),
+];
+
+module.exports = { buatAnalisisRules, kondisiRules, idAnalisisRules, umpanBalikRules };
