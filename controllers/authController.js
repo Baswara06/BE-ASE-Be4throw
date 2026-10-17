@@ -155,4 +155,4 @@ async function resetPassword(req, res, next) {
   }
 }
 
-module.exports = { register, login, me, forgotPassword, resetPassword };
+module.exports = { register, login, me, forgotPassword, resetPassword, toPublicUser };
